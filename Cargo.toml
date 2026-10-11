@@ -1,0 +1,24 @@
+[package]
+name = "drip"
+version = "0.1.0"
+edition = "2021"
+description = "A fast, fastfetch-style system info tool in Rust, with dripfetch's logos and tree layout"
+license = "MIT"
+readme = "README.md"
+build = "build.rs"
+
+[[bin]]
+name = "drip"
+path = "src/main.rs"
+
+[dependencies]
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+toml = { version = "0.8", default-features = false, features = ["parse"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
