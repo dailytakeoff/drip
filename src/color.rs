@@ -116,13 +116,8 @@ pub fn line_text(line: &[Seg]) -> String {
     line.iter().map(|s| s.text.as_str()).collect()
 }
 
-/// Appends a segment to `out`, wrapped in SGR escapes when color is on.
-pub fn paint(out: &mut String, seg: &Seg, color: bool) {
-    if !color || seg.style.is_plain() || seg.text.is_empty() {
-        out.push_str(&seg.text);
-        return;
-    }
-    out.push_str("\x1b[");
+/// Writes the SGR parameters for a style ("1;94"), without `ESC[` and `m`.
+fn sgr_params(style: &Style, out: &mut String) {
     let mut first = true;
     let mut sep = |out: &mut String| {
         if !first {
@@ -130,22 +125,42 @@ pub fn paint(out: &mut String, seg: &Seg, color: bool) {
         }
         first = false;
     };
-    if seg.style.bold {
+    if style.bold {
         sep(out);
         out.push('1');
     }
-    if seg.style.dim {
+    if style.dim {
         sep(out);
         out.push('2');
     }
-    if let Some(c) = seg.style.fg {
+    if let Some(c) = style.fg {
         sep(out);
         c.fg(out);
     }
-    if let Some(c) = seg.style.bg {
+    if let Some(c) = style.bg {
         sep(out);
         c.bg(out);
     }
+}
+
+/// A full "reset, then apply `style`" escape, used by the rain renderer.
+pub fn sgr(style: &Style, out: &mut String) {
+    out.push_str("\x1b[0");
+    if !style.is_plain() {
+        out.push(';');
+        sgr_params(style, out);
+    }
+    out.push('m');
+}
+
+/// Appends a segment to `out`, wrapped in SGR escapes when color is on.
+pub fn paint(out: &mut String, seg: &Seg, color: bool) {
+    if !color || seg.style.is_plain() || seg.text.is_empty() {
+        out.push_str(&seg.text);
+        return;
+    }
+    out.push_str("\x1b[");
+    sgr_params(&seg.style, out);
     out.push('m');
     out.push_str(&seg.text);
     out.push_str("\x1b[0m");

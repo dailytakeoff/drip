@@ -21,6 +21,7 @@ pub struct Args {
     pub color: Option<bool>,
     pub json: bool,
     pub stat: bool,
+    pub drip: bool,
 }
 
 pub const HELP: &str = "\
@@ -34,6 +35,7 @@ OPTIONS:
     -s, --style <classic|tree>    Layout style
     -m, --modules <a,b,c>         Modules to show, comma separated
     -c, --config <PATH>           Config file (default: ~/.config/drip/config.toml)
+    -d, --drip                    Full-screen mode with rain (q to quit)
         --json                    Print info as JSON instead
         --stat                    Show how long each module took
         --color / --no-color      Force colors on or off (NO_COLOR is respected)
@@ -59,6 +61,7 @@ pub fn parse_from(raw: Vec<String>) -> Result<Args, String> {
         color: None,
         json: false,
         stat: false,
+        drip: false,
     };
     let mut force = false;
     let mut gen = false;
@@ -86,6 +89,7 @@ pub fn parse_from(raw: Vec<String>) -> Result<Args, String> {
                 )
             }
             "-c" | "--config" => a.config = Some(PathBuf::from(value("--config")?)),
+            "-d" | "--drip" => a.drip = true,
             "--json" => a.json = true,
             "--stat" => a.stat = true,
             "--color" => a.color = Some(true),
@@ -116,7 +120,8 @@ mod tests {
 
     #[test]
     fn flags() {
-        let a = p(&["--logo=arch", "-s", "tree", "-m", "os, cpu", "--no-color"]);
+        let a = p(&["--logo=arch", "-s", "tree", "-m", "os, cpu", "--no-color", "-d"]);
+        assert!(a.drip);
         assert_eq!(a.logo.as_deref(), Some("arch"));
         assert_eq!(a.style.as_deref(), Some("tree"));
         assert_eq!(a.modules.unwrap(), vec!["os", "cpu"]);

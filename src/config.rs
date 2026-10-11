@@ -16,6 +16,21 @@ pub struct Config {
     pub truncate: Option<bool>,
     pub modules: Option<Vec<String>>,
     pub keys: HashMap<String, String>,
+    pub rain: Rain,
+}
+
+/// Settings for `drip --drip`.
+#[derive(Deserialize, Default, Debug, Clone)]
+#[serde(default, deny_unknown_fields)]
+pub struct Rain {
+    pub intensity: Option<f32>,
+    pub chars: Vec<String>,
+    pub colors: Vec<String>,
+    pub speed: Option<[f32; 2]>,
+    pub length: Option<[u16; 2]>,
+    pub collision: Option<String>,
+    pub fps: Option<u32>,
+    pub refresh: Option<f32>,
 }
 
 pub fn default_path() -> Option<PathBuf> {
@@ -109,4 +124,30 @@ truncate = true
 [keys]
 # os = "Distro"
 # localip = "IP"
+
+# The animated rain shown by `drip --drip`.
+[rain]
+# Drops on screen, scaled to an 80x24 terminal. 0 = no rain.
+intensity = 60
+
+# Characters to fall; one is picked per drop.
+chars = ["│"]
+
+# Drop colors. Empty = the logo's colors.
+colors = []
+
+# [min, max] fall speed in rows per second, and trail length in rows.
+speed = [10.0, 35.0]
+length = [4, 16]
+
+# What drops do when they reach the fetch:
+#   "box"   stop at a box around it (cleanest)
+#   "shape" land on the logo and text themselves
+#   "none"  fall behind it
+collision = "box"
+
+fps = 30
+
+# Seconds between refreshes of uptime, memory, swap, disk, battery and IP.
+refresh = 2.0
 "##;

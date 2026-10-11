@@ -12,6 +12,7 @@ drip                 # fastfetch-style
 drip -s tree         # dripfetch-style sections
 drip --stat          # time per module
 drip --json          # machine-readable
+drip --drip          # full-screen, with rain (q quit, space pause, +/- density)
 drip -l gentoo       # any of the 487 built-in logos
 ```
 
@@ -51,6 +52,26 @@ or `cargo install --path .`
 
 Plus layout items: `title`, `separator`, `break`, `colors`, `section:NAME`.
 Modules with nothing to report are simply left out.
+
+## Rain
+
+`drip --drip` centers the fetch on screen with rain falling around it, in
+your logo's colors. Uptime, memory, disk, battery and IP refresh every two
+seconds. Tune it under `[rain]` in the config:
+
+```toml
+[rain]
+intensity = 60          # drops on an 80x24 screen; scales with size
+chars = ["│"]
+colors = []             # empty = logo colors
+speed = [10.0, 35.0]    # rows per second
+length = [4, 16]
+collision = "box"       # "box", "shape" (lands on the logo/text) or "none"
+fps = 30
+refresh = 2.0
+```
+
+Alias it if you want it every time: `alias fetch='drip --drip'`.
 
 ## Config
 

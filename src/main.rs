@@ -1,14 +1,16 @@
 mod cli;
 mod color;
 mod config;
+mod fetch;
 mod logo;
 mod modules;
+mod rain;
 mod render;
 mod sys;
+mod term;
 
-use color::Color;
-use modules::{Ctx, MODULES};
-use render::{Gathered, Item, Opts};
+use fetch::Fetch;
+use modules::MODULES;
 use std::io::Write;
 use std::path::PathBuf;
 use std::time::Instant;
@@ -63,166 +65,29 @@ fn gen_config(path: Option<PathBuf>, force: bool) {
     }
 }
 
-fn expand_home(p: &str) -> PathBuf {
-    match (p.strip_prefix("~/"), sys::home()) {
-        (Some(rest), Some(h)) => h.join(rest),
-        _ => PathBuf::from(p),
-    }
-}
-
-/// Resolves the logo setting to (name for colors, logo text).
-fn resolve_logo(setting: &str, os: &std::collections::HashMap<String, String>, width: Option<usize>) -> Option<(String, String)> {
-    match setting {
-        "none" | "off" | "false" => None,
-        s if s.contains('/') || s.ends_with(".txt") => match std::fs::read_to_string(expand_home(s)) {
-            Ok(text) => Some((String::new(), text)),
-            Err(e) => {
-                eprintln!("drip: can't read logo {s}: {e}");
-                resolve_logo("auto", os, width)
-            }
-        },
-        "auto" | "" => {
-            let mut name = logo::detect(os);
-            let full = logo::builtin(&name).unwrap_or("");
-            let full_w = full.lines().map(|l| l.chars().count()).max().unwrap_or(0);
-            // On a narrow terminal, prefer the distro's small logo.
-            if let Some(w) = width {
-                let small = format!("{name}_small");
-                if w < full_w + 50 && logo::builtin(&small).is_some() {
-                    name = small;
-                }
-            }
-            logo::builtin(&name).map(|t| (name, t.to_owned()))
-        }
-        s => {
-            let key = s.to_ascii_lowercase().replace('-', "_");
-            match logo::builtin(&key) {
-                Some(t) => Some((key, t.to_owned())),
-                None => {
-                    eprintln!("drip: no built-in logo '{s}' (see --list-logos)");
-                    resolve_logo("auto", os, width)
-                }
-            }
-        }
-    }
-}
-
+/// Returns what to print (empty after the rain animation).
 fn run(args: &cli::Args) -> String {
     let start = Instant::now();
     let cfg = config::load(args.config.as_deref());
+    let tty = sys::is_tty(libc::STDOUT_FILENO);
 
-    let color = !args.json
-        && args.color.unwrap_or_else(|| sys::env("NO_COLOR").is_none() && sys::is_tty(libc::STDOUT_FILENO));
-    let width = if sys::is_tty(libc::STDOUT_FILENO) && cfg.truncate.unwrap_or(true) {
-        sys::term_width()
-    } else {
-        None
-    };
+    let color = !args.json && args.color.unwrap_or_else(|| sys::env("NO_COLOR").is_none() && tty);
+    let width = if tty && cfg.truncate.unwrap_or(true) { sys::term_width() } else { None };
 
-    let ctx = Ctx {
-        os: sys::os_release(),
-        uname: sys::uname(),
-        config_home: sys::config_home(),
-    };
-
-    // ---- what to show
-    let style = args.style.clone().or(cfg.style.clone()).unwrap_or_else(|| "classic".into());
-    let tree = match style.as_str() {
-        "tree" => true,
-        "classic" => false,
-        other => {
-            eprintln!("drip: unknown style '{other}', using classic");
-            false
-        }
-    };
-    let names: Vec<String> = args.modules.clone().or(cfg.modules.clone()).unwrap_or_else(|| {
-        let d = if tree { config::TREE_MODULES } else { config::CLASSIC_MODULES };
-        d.iter().map(|s| s.to_string()).collect()
-    });
-    let items: Vec<Item> = names.iter().map(|n| Item::parse(n)).collect();
-    for it in &items {
-        if let Item::Info(n) = it {
-            if modules::default_label(n).is_none() {
-                eprintln!("drip: unknown module '{n}' (see --list-modules)");
-            }
-        }
-    }
-
-    // ---- gather: slow modules on threads, the rest inline meanwhile
-    let label = |n: &str| -> String {
-        cfg.keys
-            .get(n)
-            .cloned()
-            .unwrap_or_else(|| modules::default_label(n).unwrap_or(n).to_owned())
-    };
-    let timed = |n: &str| {
-        let t = Instant::now();
-        let entries = modules::gather(n, &label(n), &ctx);
-        Gathered { entries, time: t.elapsed() }
-    };
-    let mut results: Vec<Option<Gathered>> = (0..items.len()).map(|_| None).collect();
-    std::thread::scope(|s| {
-        let handles: Vec<_> = items
-            .iter()
-            .enumerate()
-            .filter_map(|(i, it)| match it {
-                Item::Info(n) if modules::is_slow(n) => Some((i, s.spawn(|| timed(n)))),
-                _ => None,
-            })
-            .collect();
-        for (i, it) in items.iter().enumerate() {
-            if let Item::Info(n) = it {
-                if !modules::is_slow(n) {
-                    results[i] = Some(timed(n));
-                }
-            }
-        }
-        for (i, h) in handles {
-            results[i] = h.join().ok();
-        }
-    });
+    let mut fetch = Fetch::new(args, &cfg, color, width, !args.json);
 
     if args.json {
-        return render::json(&items, &results);
+        return fetch.json();
+    }
+    if args.drip {
+        if let Err(e) = rain::run(&mut fetch, &cfg.rain, color) {
+            eprintln!("drip: {e}");
+            std::process::exit(1);
+        }
+        return String::new();
     }
 
-    // ---- logo and colors
-    let logo_setting = args.logo.clone().or(cfg.logo.clone()).unwrap_or_else(|| "auto".into());
-    let resolved = resolve_logo(&logo_setting, &ctx.os, width);
-    let colors_name = resolved.as_ref().map(|(n, _)| n.clone()).unwrap_or_else(|| logo::detect(&ctx.os));
-    let mut palette: Vec<Color> = cfg
-        .logo_colors
-        .iter()
-        .filter_map(|c| {
-            let p = Color::parse(c);
-            if p.is_none() {
-                eprintln!("drip: bad color '{c}' in logo_colors");
-            }
-            p
-        })
-        .collect();
-    if palette.is_empty() {
-        palette = logo::default_colors(&colors_name);
-    }
-    let key = match cfg.key_color.as_deref() {
-        None | Some("auto") => palette[0],
-        Some(c) => Color::parse(c).unwrap_or_else(|| {
-            eprintln!("drip: bad key_color '{c}'");
-            palette[0]
-        }),
-    };
-    let logo = resolved.map(|(_, text)| logo::parse(&text, &palette));
-
-    let opts = Opts {
-        tree,
-        key,
-        sep: cfg.separator.clone().unwrap_or_else(|| ": ".into()),
-        stat: args.stat,
-        color,
-        user: sys::username().unwrap_or_else(|| "user".into()),
-        host: ctx.uname.as_ref().map(|u| u.nodename.clone()).unwrap_or_else(|| "localhost".into()),
-    };
-    let mut lines = render::info_lines(&items, &results, &opts);
+    let mut lines = fetch.info_lines();
     if args.stat {
         lines.push(vec![]);
         lines.push(vec![color::Seg::plain(format!(
@@ -230,5 +95,5 @@ fn run(args: &cli::Args) -> String {
             start.elapsed().as_secs_f64() * 1000.0
         ))]);
     }
-    render::compose(logo.as_ref(), cfg.logo_gap.unwrap_or(3), &lines, width, color)
+    render::paint_lines(&render::layout(fetch.logo.as_ref(), fetch.gap, &lines, width), color)
 }

@@ -202,36 +202,42 @@ fn truncate(line: &[Seg], max: usize) -> Vec<Seg> {
     out
 }
 
-pub fn compose(logo: Option<&Logo>, gap: usize, info: &[Vec<Seg>], width: Option<usize>, color: bool) -> String {
+/// Places the logo and info side by side. Each returned line is the full
+/// row as segments; used both for printing and as the rain's centerpiece.
+pub fn layout(logo: Option<&Logo>, gap: usize, info: &[Vec<Seg>], width: Option<usize>) -> Vec<Vec<Seg>> {
     let left = logo.map(|l| l.width + gap).unwrap_or(0);
     let avail = width.map(|w| w.saturating_sub(left));
     let logo_rows = logo.map(|l| l.lines.len()).unwrap_or(0);
     let rows = logo_rows.max(info.len());
-    let mut out = String::with_capacity(rows * 96);
+    let mut out = Vec::with_capacity(rows);
 
     for i in 0..rows {
+        let mut row: Vec<Seg> = Vec::new();
         if let Some(l) = logo {
-            if let Some(segs) = l.lines.get(i) {
-                for s in segs {
-                    paint(&mut out, s, color);
-                }
-                if i < info.len() {
-                    out.push_str(&" ".repeat(left - line_width(segs)));
-                }
-            } else if i < info.len() {
-                out.push_str(&" ".repeat(left));
+            let segs = l.lines.get(i).map(Vec::as_slice).unwrap_or(&[]);
+            row.extend_from_slice(segs);
+            if i < info.len() {
+                row.push(Seg::plain(" ".repeat(left - line_width(segs))));
             }
         }
         if let Some(line) = info.get(i) {
-            let line = match avail {
-                Some(a) if a > 1 => truncate(line, a),
-                _ => line.clone(),
-            };
-            for s in &line {
-                paint(&mut out, s, color);
+            match avail {
+                Some(a) if a > 1 => row.extend(truncate(line, a)),
+                _ => row.extend_from_slice(line),
             }
         }
-        // Drop trailing spaces left by logos.
+        out.push(row);
+    }
+    out
+}
+
+pub fn paint_lines(lines: &[Vec<Seg>], color: bool) -> String {
+    let mut out = String::with_capacity(lines.len() * 96);
+    for line in lines {
+        for s in line {
+            paint(&mut out, s, color);
+        }
+        // Drop trailing padding (a logo shorter than the info column).
         while out.ends_with(' ') {
             out.pop();
         }
@@ -287,7 +293,7 @@ mod tests {
     fn logo_and_info_align() {
         let logo = crate::logo::parse("ab\nabcd\n", &[Color::Ansi(1)]);
         let info = vec![vec![Seg::plain("x")], vec![Seg::plain("y")], vec![Seg::plain("z")]];
-        let out = compose(Some(&logo), 2, &info, None, false);
+        let out = paint_lines(&layout(Some(&logo), 2, &info, None), false);
         assert_eq!(out, "ab    x\nabcd  y\n      z\n");
     }
 }

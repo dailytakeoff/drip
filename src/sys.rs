@@ -138,16 +138,23 @@ pub fn is_tty(fd: i32) -> bool {
     unsafe { libc::isatty(fd) == 1 }
 }
 
-pub fn term_width() -> Option<usize> {
+/// (columns, rows) of the terminal.
+pub fn term_size() -> Option<(usize, usize)> {
     for fd in [libc::STDOUT_FILENO, libc::STDERR_FILENO, libc::STDIN_FILENO] {
         unsafe {
             let mut ws: libc::winsize = std::mem::zeroed();
             if libc::ioctl(fd, libc::TIOCGWINSZ, &mut ws) == 0 && ws.ws_col > 0 {
-                return Some(ws.ws_col as usize);
+                return Some((ws.ws_col as usize, ws.ws_row as usize));
             }
         }
     }
-    env("COLUMNS").and_then(|c| c.parse().ok())
+    None
+}
+
+pub fn term_width() -> Option<usize> {
+    term_size()
+        .map(|(c, _)| c)
+        .or_else(|| env("COLUMNS").and_then(|c| c.parse().ok()))
 }
 
 /// Every up IPv4 address: (interface, address, prefix length).
